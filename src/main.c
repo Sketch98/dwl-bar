@@ -93,7 +93,6 @@ void cleanup(void) {
     xdg_wm_base_destroy(base);
     wl_compositor_destroy(compositor);
     close(fifo_fd);
-    unlink(fifo_path);
     free(fifo_path);
     zxdg_output_manager_v1_destroy(output_manager);
     zwlr_layer_shell_v1_destroy(shell);
@@ -169,27 +168,20 @@ void fifo_in(int fd, short mask, void *data) {
 }
 
 void fifo_setup(void) {
-  int result, i;
-  char *runtime_path = getenv("XDG_RUNTIME_DIR");
+  struct stat s;
 
-  for (i = 0; i < 100; i++) {
-    fifo_path = string_create("%s/dwl-bar-%d", runtime_path, i);
-
-    result = mkfifo(fifo_path, 0666);
-    if (result < 0) {
-      if (errno != EEXIST)
+  fifo_path = string_create("%s/dwl-bar", getenv("XDG_RUNTIME_DIR"));
+  if ((fifo_fd = open(fifo_path, O_CLOEXEC | O_RDONLY | O_NONBLOCK)) < 0) {
+      if (errno != ENOENT)
+          panic("open fifo");
+      if (mkfifo(fifo_path, 0666) < 0)
           panic("mkfifo");
-
-      continue;
-    }
-
-    if ((fifo_fd = open(fifo_path, O_CLOEXEC | O_RDONLY | O_NONBLOCK)) < 0)
-        panic("open fifo");
-
-    return;
+      if ((fifo_fd = open(fifo_path, O_CLOEXEC | O_RDONLY | O_NONBLOCK)) < 0)
+          panic("open fifo");
   }
 
-  panic("setup fifo"); /* If we get here then we couldn't setup the fifo */
+  if (fstat(fifo_fd, &s) < 0 || (s.st_mode & S_IFMT) != S_IFIFO)
+      panic("fstat");
 }
 
 void monitor_destroy(struct Monitor *monitor) {
